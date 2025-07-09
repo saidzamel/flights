@@ -1,26 +1,23 @@
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
+require('dotenv').config();
 
 const app = express();
-
-// ✅ Use Render's PORT if available
 const port = process.env.PORT || 3000;
 
-// ✅ Get Supabase credentials from environment variables
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// OData-like query
 app.get('/odata/flights', async (req, res) => {
   try {
     let query = supabase.from('flights').select('*');
 
     if (req.query['$filter']) {
-      const filter = req.query['$filter'];
-      const [column, , value] = filter.split(' ');
+      const [column, , value] = req.query['$filter'].split(' ');
       const val = value.replace(/'/g, '');
-      query = query.eq(column, val);
+      const allowedColumns = ['flight_number', 'departure', 'arrival', 'status'];
+      if (allowedColumns.includes(column)) {
+        query = query.eq(column, val);
+      }
     }
 
     if (req.query['$top']) {
@@ -36,7 +33,10 @@ app.get('/odata/flights', async (req, res) => {
 
     if (req.query['$orderby']) {
       const [col, order] = req.query['$orderby'].split(' ');
-      query = query.order(col, { ascending: order !== 'desc' });
+      const allowedColumns = ['flight_number', 'departure', 'arrival', 'status'];
+      if (allowedColumns.includes(col)) {
+        query = query.order(col, { ascending: order !== 'desc' });
+      }
     }
 
     const { data, error } = await query;
@@ -51,13 +51,32 @@ app.get('/odata/flights', async (req, res) => {
   }
 });
 
-// Metadata
 app.get('/odata/$metadata', (req, res) => {
   res.type('application/xml');
-  res.send(YOUR XML METADATA HERE); // Keep the same metadata block
+  res.send(`
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Default" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="flights">
+        <Key>
+          <PropertyRef Name="id" />
+        </Key>
+        <Property Name="id" Type="Edm.Int32" Nullable="false" />
+        <Property Name="flight_number" Type="Edm.String" />
+        <Property Name="departure" Type="Edm.String" />
+        <Property Name="arrival" Type="Edm.String" />
+        <Property Name="status" Type="Edm.String" />
+      </EntityType>
+      <EntityContainer Name="Container">
+        <EntitySet Name="flights" EntityType="Default.flights" />
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
+`);
 });
 
-// Start the server
 app.listen(port, () => {
-  console.log(OData server running at http://localhost:${port}/odata/flights);
+  console.log(`OData server running at http://localhost:${port}/odata/flights`);
 });
